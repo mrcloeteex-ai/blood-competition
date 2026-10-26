@@ -1,0 +1,276 @@
+import { useEffect, useState } from 'react';
+import {
+    ActivityIndicator,
+    Alert,
+    FlatList,
+    Modal,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
+} from 'react-native';
+
+interface DonorItem {
+  donor_id: number | string;
+  national_id: string;
+  full_name: string;
+  blood_group: string;
+  contact_number: string;
+  deferral_status?: string;
+}
+
+const API_URL = 'https://foothold-barrack-regulate.ngrok-free.dev';
+
+export default function Donors() {
+  const [donors, setDonors] = useState<DonorItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Modal & Form States
+  const [modalVisible, setModalVisible] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [nationalId, setNationalId] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [phone, setPhone] = useState('');
+  
+  // Strict ENUM state selections
+  const [selectedSex, setSelectedSex] = useState<'Male' | 'Female' | 'Intersex'>('Female');
+  const [selectedGroup, setSelectedGroup] = useState<'A' | 'B' | 'AB' | 'O'>('O');
+  const [selectedRh, setSelectedRh] = useState<'Positive' | 'Negative'>('Positive');
+
+  const fetchDonors = async () => {
+    try {
+      const response = await fetch(`${API_URL}/donors`);
+      if (response.ok) {
+        const data = await response.json();
+        setDonors(data);
+      }
+    } catch (error) {
+      console.error('Error fetching donors:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddDonor = async () => {
+    if (!nationalId || !fullName || !phone) {
+      Alert.alert('Missing Fields', 'Please fill in National ID, Full Name, and Phone Number.');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const nameParts = fullName.trim().split(' ');
+      const firstName = nameParts[0] || 'Unknown';
+      const lastName = nameParts.slice(1).join(' ') || 'Donor';
+
+      const payload = {
+        national_id: nationalId,
+        first_name: firstName,
+        last_name: lastName,
+        date_of_birth: '2000-01-01',
+        sex: selectedSex,
+        blood_group: selectedGroup,
+        rh_factor: selectedRh,
+        phone_number: phone,
+      };
+
+      const response = await fetch(`${API_URL}/donors`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (response.ok) {
+        Alert.alert('Success', 'Donor registered in MySQL database!');
+        setModalVisible(false);
+        setNationalId('');
+        setFullName('');
+        setPhone('');
+        fetchDonors();
+      } else {
+        const errorData = await response.json();
+        Alert.alert('Error', errorData.detail || 'Failed to register donor.');
+      }
+    } catch (error) {
+      console.error('Error saving donor:', error);
+      Alert.alert('Network Error', 'Could not reach backend server.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDonors();
+  }, []);
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <View style={styles.headerRow}>
+        <View>
+          <Text style={styles.headerTitle}>Blood Donors</Text>
+          <Text style={styles.subTitle}>Registered Donor Registry</Text>
+        </View>
+        <TouchableOpacity style={styles.addButton} onPress={() => setModalVisible(true)}>
+          <Text style={styles.addButtonText}>+ Add Donor</Text>
+        </TouchableOpacity>
+      </View>
+
+      {loading ? (
+        <ActivityIndicator size="large" color="#0284c7" style={{ marginTop: 40 }} />
+      ) : (
+        <FlatList
+          data={donors}
+          keyExtractor={(item, index) => item.donor_id ? item.donor_id.toString() : index.toString()}
+          contentContainerStyle={styles.listContainer}
+          renderItem={({ item }) => (
+            <View style={styles.card}>
+              <View style={styles.row}>
+                <Text style={styles.donorId}>ID: {item.national_id}</Text>
+                <View style={[styles.statusBadge, styles.bloodBadge]}>
+                  <Text style={[styles.statusText, styles.bloodText]}>{item.blood_group}</Text>
+                </View>
+              </View>
+              <Text style={styles.name}>{item.full_name}</Text>
+              <View style={styles.footerRow}>
+                <Text style={styles.details}>📞 {item.contact_number}</Text>
+                <Text style={styles.details}>Status: {item.deferral_status}</Text>
+              </View>
+            </View>
+          )}
+        />
+      )}
+
+      {/* Add Donor Modal */}
+      <Modal visible={modalVisible} animationType="slide" transparent={true}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={styles.modalTitle}>Register New Donor</Text>
+              
+              <TextInput
+                style={styles.input}
+                placeholder="National ID"
+                value={nationalId}
+                onChangeText={setNationalId}
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Full Name (First & Last)"
+                value={fullName}
+                onChangeText={setFullName}
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Phone Number"
+                keyboardType="phone-pad"
+                value={phone}
+                onChangeText={setPhone}
+              />
+
+              {/* Sex Selection */}
+              <Text style={styles.label}>Sex:</Text>
+              <View style={styles.optionsRow}>
+                {(['Female', 'Male', 'Intersex'] as const).map((s) => (
+                  <TouchableOpacity
+                    key={s}
+                    style={[styles.chip, selectedSex === s && styles.selectedChip]}
+                    onPress={() => setSelectedSex(s)}
+                  >
+                    <Text style={[styles.chipText, selectedSex === s && styles.selectedChipText]}>{s}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {/* Blood Group Selection */}
+              <Text style={styles.label}>Blood Group:</Text>
+              <View style={styles.optionsRow}>
+                {(['A', 'B', 'AB', 'O'] as const).map((g) => (
+                  <TouchableOpacity
+                    key={g}
+                    style={[styles.chip, selectedGroup === g && styles.selectedChip]}
+                    onPress={() => setSelectedGroup(g)}
+                  >
+                    <Text style={[styles.chipText, selectedGroup === g && styles.selectedChipText]}>{g}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {/* RH Factor Selection */}
+              <Text style={styles.label}>Rh Factor:</Text>
+              <View style={styles.optionsRow}>
+                {(['Positive', 'Negative'] as const).map((rh) => (
+                  <TouchableOpacity
+                    key={rh}
+                    style={[styles.chip, selectedRh === rh && styles.selectedChip]}
+                    onPress={() => setSelectedRh(rh)}
+                  >
+                    <Text style={[styles.chipText, selectedRh === rh && styles.selectedChipText]}>{rh}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <View style={styles.modalActions}>
+                <TouchableOpacity 
+                  style={[styles.modalBtn, styles.cancelBtn]} 
+                  onPress={() => setModalVisible(false)}
+                >
+                  <Text style={styles.cancelBtnText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[styles.modalBtn, styles.submitBtn]} 
+                  onPress={handleAddDonor}
+                  disabled={submitting}
+                >
+                  {submitting ? (
+                    <ActivityIndicator color="#ffffff" size="small" />
+                  ) : (
+                    <Text style={styles.submitBtnText}>Save Record</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#f1f5f9', paddingHorizontal: 16, paddingTop: 20 },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, marginTop: 10 },
+  headerTitle: { fontSize: 26, fontWeight: '800', color: '#0f172a' },
+  subTitle: { fontSize: 14, color: '#64748b', fontWeight: '500' },
+  addButton: { backgroundColor: '#ef4444', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8 },
+  addButtonText: { color: '#ffffff', fontWeight: '700', fontSize: 14 },
+  listContainer: { paddingBottom: 24 },
+  card: { backgroundColor: '#ffffff', borderRadius: 12, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: '#e2e8f0', elevation: 2 },
+  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
+  donorId: { fontSize: 14, fontWeight: '700', color: '#64748b' },
+  name: { fontSize: 17, fontWeight: '700', color: '#1e293b', marginBottom: 8 },
+  footerRow: { flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: '#f1f5f9', paddingTop: 8, marginTop: 4 },
+  details: { fontSize: 13, color: '#475569', fontWeight: '500' },
+  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 },
+  bloodBadge: { backgroundColor: '#fee2e2' },
+  statusText: { fontSize: 13, fontWeight: '800' },
+  bloodText: { color: '#dc2626' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
+  modalContent: { backgroundColor: '#ffffff', borderRadius: 16, padding: 20, maxHeight: '80%' },
+  modalTitle: { fontSize: 20, fontWeight: '700', color: '#0f172a', marginBottom: 16 },
+  input: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 12, fontSize: 14 },
+  label: { fontSize: 14, fontWeight: '600', color: '#334155', marginBottom: 6, marginTop: 4 },
+  optionsRow: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 12 },
+  chip: { backgroundColor: '#e2e8f0', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, marginRight: 8, marginBottom: 6 },
+  selectedChip: { backgroundColor: '#ef4444' },
+  chipText: { fontSize: 13, color: '#475569', fontWeight: '600' },
+  selectedChipText: { color: '#ffffff' },
+  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 16 },
+  modalBtn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8, marginLeft: 8 },
+  cancelBtn: { backgroundColor: '#e2e8f0' },
+  cancelBtnText: { color: '#475569', fontWeight: '600' },
+  submitBtn: { backgroundColor: '#ef4444' },
+  submitBtnText: { color: '#ffffff', fontWeight: '700' },
+});
