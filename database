@@ -1,0 +1,170 @@
+-- Create Database
+CREATE DATABASE IF NOT EXISTS blood_bank_system 
+CHARACTER SET utf8mb4 
+COLLATE utf8mb4_unicode_ci;
+
+USE blood_bank_system;
+
+-- -----------------------------------------------------
+-- Table 1: Donors
+-- -----------------------------------------------------
+CREATE TABLE donors (
+    donor_id INT AUTO_INCREMENT PRIMARY KEY,
+    national_id VARCHAR(50) NOT NULL UNIQUE,
+    first_name VARCHAR(50) NOT NULL,
+    last_name VARCHAR(50) NOT NULL,
+    date_of_birth DATE NOT NULL,
+    sex ENUM('Male', 'Female', 'Intersex') NOT NULL,
+    blood_group ENUM('A', 'B', 'AB', 'O') NOT NULL,
+    rh_factor ENUM('Positive', 'Negative') NOT NULL,
+    phone_number VARCHAR(20) NOT NULL,
+    email VARCHAR(100),
+    residential_address TEXT,
+    last_donation_date DATE,
+    deferral_status BOOLEAN DEFAULT FALSE,
+    deferral_reason TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_donor_national_id (national_id),
+    INDEX idx_donor_blood_type (blood_group, rh_factor)
+) ENGINE=InnoDB;
+
+-- -----------------------------------------------------
+-- Table 2: Collection Events
+-- -----------------------------------------------------
+CREATE TABLE collection_events (
+    collection_id INT AUTO_INCREMENT PRIMARY KEY,
+    din VARCHAR(50) NOT NULL UNIQUE COMMENT 'Donation Identification Number Barcode',
+    donor_id INT NOT NULL,
+    collection_date_time DATETIME NOT NULL,
+    phlebotomist_id VARCHAR(50) NOT NULL,
+    facility_location VARCHAR(100) NOT NULL,
+    donor_weight_kg DECIMAL(5, 2) NOT NULL,
+    donor_temperature_c DECIMAL(4, 2) NOT NULL,
+    donor_systolic_bp INT NOT NULL,
+    donor_diastolic_bp INT NOT NULL,
+    donor_pulse_bpm INT NOT NULL,
+    pre_donation_hemoglobin DECIMAL(4, 2) NOT NULL,
+    collection_volume_ml INT NOT NULL,
+    collection_duration_minutes INT NOT NULL,
+    phlebotomy_site ENUM('Left Arm', 'Right Arm') NOT NULL,
+    adverse_events TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_collection_donor FOREIGN KEY (donor_id) REFERENCES donors(donor_id) ON DELETE RESTRICT,
+    INDEX idx_din (din),
+    INDEX idx_collection_date (collection_date_time)
+) ENGINE=InnoDB;
+
+-- -----------------------------------------------------
+-- Table 3: Consumables & Reagents Traceability
+-- -----------------------------------------------------
+CREATE TABLE consumables_and_reagents (
+    consumable_id INT AUTO_INCREMENT PRIMARY KEY,
+    collection_id INT NOT NULL,
+    bag_type ENUM('Single', 'Double', 'Triple', 'Quadruple') NOT NULL,
+    bag_lot_number VARCHAR(50) NOT NULL,
+    bag_expiration_date DATE NOT NULL,
+    anticoagulant_type ENUM('CPDA-1', 'CPD', 'ACD-A', 'SAGM', 'AS-1', 'AS-3', 'Other') NOT NULL,
+    anticoagulant_volume_ml INT NOT NULL,
+    needle_lot_number VARCHAR(50) NOT NULL,
+    sample_tube_lot_number VARCHAR(50) NOT NULL,
+    CONSTRAINT fk_consumable_collection FOREIGN KEY (collection_id) REFERENCES collection_events(collection_id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- -----------------------------------------------------
+-- Table 4: Laboratory Screening & Testing
+-- -----------------------------------------------------
+CREATE TABLE laboratory_screening (
+    screening_id INT AUTO_INCREMENT PRIMARY KEY,
+    collection_id INT NOT NULL,
+    test_date_time DATETIME NOT NULL,
+    confirmed_blood_group ENUM('A', 'B', 'AB', 'O') NOT NULL,
+    confirmed_rh_factor ENUM('Positive', 'Negative') NOT NULL,
+    weak_d_result ENUM('Positive', 'Negative', 'Not Applicable') DEFAULT 'Not Applicable',
+    hiv_result ENUM('Non-Reactive', 'Reactive', 'Pending') DEFAULT 'Pending',
+    hbv_result ENUM('Non-Reactive', 'Reactive', 'Pending') DEFAULT 'Pending',
+    hcv_result ENUM('Non-Reactive', 'Reactive', 'Pending') DEFAULT 'Pending',
+    syphilis_result ENUM('Non-Reactive', 'Reactive', 'Pending') DEFAULT 'Pending',
+    additional_pathogen_results JSON COMMENT 'Store extra tests (Malaria, Chagas, etc.)',
+    overall_screening_status ENUM('Passed', 'Failed', 'Pending Retest') DEFAULT 'Pending Retest',
+    technician_id VARCHAR(50) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_screening_collection FOREIGN KEY (collection_id) REFERENCES collection_events(collection_id) ON DELETE CASCADE,
+    INDEX idx_screening_status (overall_screening_status)
+) ENGINE=InnoDB;
+
+-- -----------------------------------------------------
+-- Table 5: Blood Components (Individual Units)
+-- -----------------------------------------------------
+CREATE TABLE blood_components (
+    component_id INT AUTO_INCREMENT PRIMARY KEY,
+    collection_id INT NOT NULL,
+    unit_barcode VARCHAR(60) NOT NULL UNIQUE COMMENT 'DIN + Component Code',
+    component_type ENUM('Whole Blood', 'Packed RBCs', 'Fresh Frozen Plasma', 'Platelet Concentrate', 'Cryoprecipitate') NOT NULL,
+    processing_date_time DATETIME NOT NULL,
+    volume_ml INT NOT NULL,
+    hematocrit_percentage DECIMAL(4, 2) DEFAULT NULL COMMENT 'For PRBC units',
+    is_leukoreduced BOOLEAN DEFAULT FALSE,
+    is_irradiated BOOLEAN DEFAULT FALSE,
+    cmv_status ENUM('Negative', 'Positive', 'Untested') DEFAULT 'Untested',
+    is_autologous BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_component_collection FOREIGN KEY (collection_id) REFERENCES collection_events(collection_id) ON DELETE RESTRICT,
+    INDEX idx_unit_barcode (unit_barcode),
+    INDEX idx_component_type (component_type)
+) ENGINE=InnoDB;
+
+-- -----------------------------------------------------
+-- Table 6: Storage Equipment Units
+-- -----------------------------------------------------
+CREATE TABLE storage_units (
+    storage_unit_id INT AUTO_INCREMENT PRIMARY KEY,
+    unit_identifier VARCHAR(50) NOT NULL UNIQUE COMMENT 'e.g., Refrig-R01, Freezer-F02',
+    equipment_type ENUM('Refrigerator', 'Freezer', 'Platelet Agitator') NOT NULL,
+    location_room VARCHAR(50) NOT NULL,
+    target_temp_min_c DECIMAL(4, 2) NOT NULL,
+    target_temp_max_c DECIMAL(4, 2) NOT NULL,
+    requires_agitation BOOLEAN DEFAULT FALSE,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+-- -----------------------------------------------------
+-- Table 7: Storage Inventory & Life Cycle Control
+-- -----------------------------------------------------
+CREATE TABLE storage_inventory (
+    inventory_id INT AUTO_INCREMENT PRIMARY KEY,
+    component_id INT NOT NULL UNIQUE,
+    storage_unit_id INT NOT NULL,
+    shelf_or_rack VARCHAR(20) NOT NULL,
+    bin_position VARCHAR(20) NOT NULL,
+    blood_group_segregation_zone VARCHAR(20) NOT NULL COMMENT 'e.g., Group_O_Neg_Zone',
+    current_status ENUM('Quarantine', 'Approved', 'Reserved', 'Discarded', 'Expired', 'Transfused') DEFAULT 'Quarantine',
+    expiration_date_time DATETIME NOT NULL,
+    release_approved_by VARCHAR(50) DEFAULT NULL,
+    discard_reason TEXT DEFAULT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_inventory_component FOREIGN KEY (component_id) REFERENCES blood_components(component_id) ON DELETE RESTRICT,
+    CONSTRAINT fk_inventory_storage_unit FOREIGN KEY (storage_unit_id) REFERENCES storage_units(storage_unit_id) ON DELETE RESTRICT,
+    INDEX idx_inventory_status (current_status),
+    INDEX idx_expiration (expiration_date_time)
+) ENGINE=InnoDB;
+
+-- -----------------------------------------------------
+-- Table 8: Environmental Storage Logs (IoT Sensor Data)
+-- -----------------------------------------------------
+CREATE TABLE environmental_logs (
+    log_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    storage_unit_id INT NOT NULL,
+    logged_timestamp DATETIME NOT NULL,
+    recorded_temperature_c DECIMAL(4, 2) NOT NULL,
+    ambient_room_temp_c DECIMAL(4, 2) DEFAULT NULL,
+    agitator_rpm INT DEFAULT NULL COMMENT 'For platelet storage units',
+    door_status ENUM('Closed', 'Open') DEFAULT 'Closed',
+    alarm_triggered BOOLEAN DEFAULT FALSE,
+    alarm_type ENUM('None', 'High Temp', 'Low Temp', 'Agitation Stop', 'Power Failure', 'Door Left Open') DEFAULT 'None',
+    corrective_action_notes TEXT DEFAULT NULL,
+    CONSTRAINT fk_log_storage_unit FOREIGN KEY (storage_unit_id) REFERENCES storage_units(storage_unit_id) ON DELETE CASCADE,
+    INDEX idx_unit_timestamp (storage_unit_id, logged_timestamp),
+    INDEX idx_alarm (alarm_triggered)
+) ENGINE=InnoDB;
